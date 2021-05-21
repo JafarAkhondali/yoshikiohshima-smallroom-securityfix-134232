@@ -7,14 +7,20 @@
   with some inspiration from https://github.com/moosetechnology/PetitParser/blob/development/src/PetitSmalltalk/PPSmalltalkGrammar.class.st
 */
 
-let SOMGrammar = String.raw`
-SOM {
+let SmallroomGrammar = String.raw`
+Smallroom {
+    Top = ListOf<(ExpanderDef | Method), "."> spaces
+
     ExpanderDef =
       identifier "instVarNames:" "'" identifier* "'"
 
-    Method = Pattern newBlock MethodBlock endBlock
+    Method = ClassSpec Pattern newBlock MethodBlock endBlock
 
     MethodBlock = BlockContents
+
+    ClassSpec =
+      | identifier
+      | LiteralArray
 
     Pattern = UnaryPattern | BinaryPattern | KeywordPattern
 
@@ -96,10 +102,11 @@ SOM {
     identifier (an identifier) = letter idRest*
     idRest = letter | digit | "_"
 
-    pseudoVariable = nil | true | false | self | super
+    pseudoVariable = nil | true | false | self | super | undefined
 
     primitive = "primitive" ~idRest
     nil = "nil" ~idRest
+    undefined = "undefined" ~idRest
     true = "true" ~idRest
     false = "false" ~idRest
     self = "self" ~idRest
@@ -156,15 +163,15 @@ SOM {
 }
 `;
 
-let grammar = ohm.grammar(SOMGrammar);
+let grammar = ohm.grammar(SmallroomGrammar);
 let semantics = grammar.createSemantics();
 
-function getMessageArgs(message) {
+function getMessageArgs(message, system, expander) {
     const { ctorName } = message._node;
     switch (ctorName) {
     case 'KeywordMessage':
     case 'BinaryMessage':
-        return message.child(1).toJS();
+        return message.child(1).toJS(system, expander);
     case 'UnaryMessage':
         return [];
     default:
@@ -173,48 +180,69 @@ function getMessageArgs(message) {
     return null;
 }
 
-semantics.addOperation("toJS", {
-    ExpanderDef(ident, _key, _q1, vars, _q2) {
-        const name = ident.toJS();
-        let varNames = vars.toJS();
-        return `class ${name} {
-                    static instVars() {return ${varNames};}
-                }`;
-
+semantics.addOperation("toJS(system, expander)", {
+    Top(list, _s) {
+        const {system, expander} = this.args;
+        return list.asIteration().children.map((n) => n.toJS(system, expander));
     },
 
-    Method(pattern, _o, body, _c) {
+    ExpanderDef(ident, _key, _q1, vars, _q2) {
+        const {system, expander} = this.args;
+        const name = ident.toJS(system, expander);
+        const varNames = vars.toJS(system, expander);
+        system[name] = {_instVarNames: varNames};
+        return `{type: "expander", name: '${name}', instVars: '${varNames}'}`;
+    },
+
+    Method(spec, pattern, _o, body, _c) {
         // Calculate the `lexicalVars` attribute on all nodes.
         this.lexicalVars; // eslint-disable-line no-unused-expressions
+        const {system} = this.args;
+        let expander = null;
 
         const selector = pattern.selector();
-        const paramList = pattern.params().join(", ");
-        return `'${selector}'(${paramList}){${body.toJS()}}`;
+        const paramList = pattern.params(system, expander).join(", ");
+        let ids;
+        if (spec._node.childAt(0).ctorName === "LiteralArray") {
+            ids = spec.toJS(system, expander);
+        } else {
+            let id = spec.toJS(system, expander);
+            ids = `['${id}']`;
+            expander = id;
+        }
+
+        const fn = body.toJS(system, expander);
+
+        return `{type: "method", name: '${selector}', classes: ${ids}, fn: (self, ${paramList}) => {${fn}}}`;
     },
 
     MethodBlock(blockContentsOpt) {
-        const bodyA = blockContentsOpt.toJS();
+        const bodyA = blockContentsOpt.toJS(this.args.system, this.args.expander);
         const body = bodyA;
         return `const _rv={};try{${body}}catch(e){if(e===_rv)return e.v;throw e}return this`;
     },
 
     BlockContents(_or, localDefsOpt, _, blockBody) {
-        const defs = localDefsOpt.toJS();
-        const body = blockBody.toJS();
+        const {system, expander} = this.args;
+        const defs = localDefsOpt.toJS(system, expander);
+        const body = blockBody.toJS(system, expander);
         return defs.join('') + body;
     },
 
     LocalDefs(identifiers) {
-        return `let ${identifiers.toJS().join(',')};`;
+        const {system, expander} = this.args;
+        return `let ${identifiers.toJS(system, expander).join(',')};`;
     },
 
     BlockBody_return(_, result) {
-        return `_rv.v=${result.toJS()};throw _rv`;
+        const {system, expander} = this.args;
+        return `_rv.v=${result.toJS(system, expander)};throw _rv`;
     },
 
     BlockBody_rec(exp, _, blockBodyOptOpt) {
-        const head = exp.toJS();
-        const tail = blockBodyOptOpt.toJS()[0];
+        const {system, expander} = this.args;
+        const head = exp.toJS(system, expander);
+        const tail = blockBodyOptOpt.toJS(system, expander)[0];
         if (tail === undefined) {
             return `return ${head}`;
         }
@@ -222,87 +250,124 @@ semantics.addOperation("toJS", {
     },
 
     Expression_assignment(ident, _, exp) {
-        return `${ident.toJS()}=${exp.toJS()}`;
+        const {system, expander} = this.args;
+
+        const expanderVars = system[expander] ? system[expander]._instVarNames : [];
+        let id = ident.sourceString;
+        let jsId = ident.toJS(system, expander);
+        let expJS = exp.toJS(system, expander);
+
+        if (expanderVars.indexOf(id) >= 0) {
+            return `this._set('${id}', ${expJS})`;
+        }
+
+        if (this.lexicalVars[id]) {
+            return `${jsId}=${expJS}`;
+        }
+
+        throw new Error(`${id} not found in context`);
     },
 
     KeywordExpression_rec(exp, message) {
+        const {system, expander} = this.args;
         const selector = message.selector();
-        const args = getMessageArgs(message);
-        return `${exp.toJS()}['${selector}'](${args})`;
+        const args = getMessageArgs(message, system, expander);
+        const self = exp.toJS(system, expander);
+        return `system.stCall('${selector}', ${self}, ${args})`;
     },
 
     BinaryExpression_rec(exp, message) {
+        const {system, expander} = this.args;
         const selector = message.selector();
-        const args = getMessageArgs(message);
-        return `${exp.toJS()}['${selector}'](${args})`;
+        const args = getMessageArgs(message, system, expander);
+        const self = exp.toJS(system, expander);
+        return `system.stCall('${selector}', ${self}, ${args})`;
     },
+
     UnaryExpression_rec(exp, message) {
+        const {system, expander} = this.args;
         const selector = message.selector();
-        const args = getMessageArgs(message);
-        return `${exp.toJS()}.${selector}(${args})`;
+        const self = exp.toJS(system, expander);
+        if (selector === "halt") {
+            return '((() => {debugger})())';
+        }
+        return `system.stCall('${selector}', ${self})`;
     },
 
     Result(exp, _) {
-        return exp.toJS();
+        return exp.toJS(this.args.system, this.args.expander);
     },
 
     NestedTerm(_open, exp, _close) {
-        return exp.toJS();
+        return exp.toJS(this.args.system, this.args.expander);
     },
 
     NestedBlock(_open, blockPatternOpt, blockContentsOpt, _close) {
-        const arity = this.blockArity() + 1;
-        // Block1 takes 0 args, Block2 takes 1, etc.
-        return `this._block${arity}((${blockPatternOpt.toJS()})=>{${blockContentsOpt.toJS()}})`;
+        const {system, expander} = this.args;
+        return `{stClass: "Block", self, fn: (${blockPatternOpt.toJS(system, expander)})=>{${blockContentsOpt.toJS(system, expander)}}}`;
     },
     BlockPattern(blockArguments, _) {
-        return blockArguments.toJS();
+        return blockArguments.toJS(this.args.system, this.args.expander);
     },
     BlockArguments(_, identIter) {
-        return identIter.toJS().join(',');
+        return identIter.toJS(this.args.system, this.args.expander).join(',');
     },
 
     LiteralArray(_, _open, literalIter, _close) {
-        return `[${literalIter.toJS().join(',')}]`;
+        return `[${literalIter.toJS(this.args.system, this.args.expander).join(',')}]`;
     },
 
     LiteralNumber_double(_, _double) {
-        return `${this.sourceString}`;
+        return this.sourceString;
     },
 
     LiteralNumber_int(_, _integer) {
-        return `this._int(${this.sourceString})`;
+        return this.sourceString;
     },
     LiteralSymbol(_, stringOrSelector) {
-        return `this.$Symbol._new(${stringOrSelector.asString()})`;
+        return `${stringOrSelector.sourceString}`;
     },
     LiteralString(str) {
-        return `this.$String._new(${str.asString()})`;
+        return `${str.sourceString}`;
     },
 
     variable(pseudoVarOrIdent) {
+        const {system, expander} = this.args;
+        const expanderArgs = system[expander] ? system[expander]._instVarNames : [];
         if (pseudoVarOrIdent._node.ctorName === 'identifier') {
-            const id = pseudoVarOrIdent.toJS();
-            return id in this.lexicalVars ? id : `this.$${id}`;
+            if (expanderArgs.includes(pseudoVarOrIdent.sourceString)) {
+                return `this._get('${pseudoVarOrIdent.sourceString}')`;
+            }
+            const id = pseudoVarOrIdent.toJS(system, expander);
+            if (knownClasses.indexOf(id) >= 0) {
+                return `{stClass: "${id} class"}`;
+            }
+
+            if (this.lexicalVars[id]) {
+                return id;
+            }
+
+            throw new Error(`${id} not found in the context`);
+            //return id; // in this.lexicalVars ? id : `this.$${id}`;
         }
-        return pseudoVarOrIdent.toJS();
+        return pseudoVarOrIdent.toJS(system, expander);
     },
 
     self(_) {
-        return 'this';
+        return 'self';
     },
 
-    super(_) {
-        return 'this._super(this)';
+    undefined(_) {
+        return 'undefined';
     },
     nil(_) {
-        return 'this.$nil';
+        return 'null';
     },
     true(_) {
-        return 'this.$true';
+        return 'true';
     },
     false(_) {
-        return 'this.$false';
+        return 'false';
     },
 
     identifier(_first, _rest) {
@@ -327,7 +392,7 @@ semantics.addAttribute(
         };
 
         return {
-            Method(pattern, _o, body, _c) {
+            Method(id, pattern, _o, body, _c) {
                 return withEnv(pattern.identifiers(), () => {
                     body.lexicalVars; // eslint-disable-line no-unused-expressions
                 });
@@ -403,21 +468,10 @@ const jsReservedWords = [
   'arguments', 'eval'
 ];
 
-semantics.addOperation('blockArity', {
-    NestedBlock(_open, blockPatternOpt, _blockContentsOpt, _close) {
-        const blockPattern = blockPatternOpt.child(0);
-        return blockPattern ? blockPattern.blockArity() : 0;
-    },
-    BlockPattern(blockArguments, _) {
-        return blockArguments.blockArity();
-    },
-    BlockArguments(_, identIter) {
-        return identIter._node.numChildren();
-    }
-});
+const knownClasses = ["Dictionary", "Array", "Interval", "Number", "Block"];
 
 semantics.addOperation('selector', {
-    Method(pattern, _o, _, _c) {
+    Method(id, pattern, _o, _, _c) {
         return pattern.selector();
     },
     UnaryPattern(selector) {
@@ -458,15 +512,15 @@ semantics.addOperation('asString', {
     }
 });
 
-semantics.addOperation('params', {
+semantics.addOperation('params(system, expander)', {
     UnaryPattern(_) {
         return [];
     },
     BinaryPattern(_, param) {
-        return [param.toJS()];
+        return [param.toJS(this.args.system, this.args.expander)];
     },
     KeywordPattern(_, params) {
-        return params.toJS();
+        return params.toJS(this.args.system, this.args.expander);
     }
 });
 
@@ -477,7 +531,7 @@ semantics.addOperation('hasPrimitiveMethods()', {
     _iter(children) {
         return children.some(c => c.hasPrimitiveMethods());
     },
-    Method(pattern, _o, primitiveOrMethodBlock, _c) {
+    Method(id, pattern, _o, primitiveOrMethodBlock, _c) {
         return primitiveOrMethodBlock._node.ctorName === 'primitive';
     },
     _terminal() {
@@ -487,15 +541,16 @@ semantics.addOperation('hasPrimitiveMethods()', {
 
 export class Translator {
     parse(str, optRule) {
-        return grammar.match(str, optRule || "ExpanderDef");
+        return grammar.match(str, optRule || "Top");
     }
 
-    translate(str, optRule) {
+    translate(system, str, optRule) {
         let match = this.parse(str, optRule);
         if (match.succeeded()) {
             let s = semantics(match);
-            return s.toJS();
+            return s.toJS(system, null);
         }
+        console.log(match);
         return null;
     }
 }
