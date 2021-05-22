@@ -1,5 +1,6 @@
 import {Evaluator, System, addDOM} from "./evaluator.js";
 
+/*
 const library = `
 Morph instVarNames: 'angle'.
 
@@ -32,6 +33,32 @@ Morph openIn: parent [
 
 const action = `Morph openIn: (document querySelector: #playground)`;
 
+*/
+
+const library = `
+#('Interval' 'Dictionary' 'Array') collect: aBlock [
+    | result i |
+    result := Array new: self size.
+    i := 1.
+    self do: [:each | result at: i put: (aBlock value: each). i := i + 1].
+    ^ result
+].
+
+#('Interval' 'Dictionary' 'Array') detect: aBlock [
+    self do: [:each | (aBlock value: each) ifTrue: [^ each]].
+    ^ nil
+].
+
+#('Interval' 'Dictionary' 'Array') withIndexDo: aBlock [
+    | i |
+    i := 1.
+    self do: [:each | aBlock value: each value: i. i := i + 1].
+    ^ self.
+]
+`;
+
+/*
+
 export function test() {
     let ev = new Evaluator();
     let system = new System();
@@ -50,24 +77,29 @@ export function test() {
     return system;
 }
 
-/*
+*/
+
+function addLibrary(system) {
+    let ev = new Evaluator();
+    ev.compile(system, library);
+    return system;
+}
 
 export function test() {
     let ev = new Evaluator();
+    let system = new System();
+
+    addLibrary(system);
 
     let tests = [
-        ["3 + 4", "Expression"],
-        ["'a', 'b'", "Expression"],
-        ["3 negated", "Expression"],
-        ["((2 - 1) to: 3)", "Expression"],
-        ["((2 - 1) to: 3) collect: [:each | each + 3]", "Expression"],
-        ["#(1 4 9) detect: [:each | each = 4]", "Expression"],
-        ["((2 - 1) to: 3) detect: [:each | each = 4]", "Expression"],
-        ["(1 to: 3) withIndexDo: [:each :index | each * index]", "Expression"],
-
+        ["3 + 4"],
+        ["'a', 'b'"],
+        ["3 negated"],
+        ["((2 - 1) to: 3)"],
+        ["((2 - 1) to: 3) collect: [:each | each + 3]"],
+        ["#(1 4 9) detect: [:each | each = 4]"],
+        ["((2 - 1) to: 3) detect: [:each | each = 4]"],
+        ["(1 to: 3) withIndexDo: [:each :index | each * index]"],
     ];
-
-    return tests.map(test => ev.evaluate(test[0]));
+    return tests.map(t => ev.evaluate(system, t));
 }
-
-*/

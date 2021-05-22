@@ -21,6 +21,19 @@ export class System {
             }
         };
 
+        this['Array'] = {
+            'at:'(self, index) {return self[index - 1];},
+            'at:put:'(self, index, value) {return self[index - 1] = value;},
+            'do:'(self, block) {
+                for (let i = 1; i <= self.length; i++) {
+                    block.fn.call(block.self, self[i]);
+                }
+                return self;
+            },
+            'size'(self) {return self.length;}
+        };
+        
+
         this['Block'] = {
             'value'(self) {return self.fn.call(self.self);},
             'value:'(self, v1) {return self.fn.call(self.self, v1);},
@@ -103,17 +116,6 @@ export class System {
             }
         };
 
-        this['Array'] = {
-            'at:'(self, index) {return self[index - 1];},
-            'at:put:'(self, index, value) {return self[index - 1] = value;},
-            'do:'(self, block) {
-                for (let i = 1; i <= self.length; i++) {
-                    block.fn.call(block.self, self[i]);
-                }
-                return self;
-            },
-            'size'(self) {return self.length;}
-        };
     }
 
     stCall(sel, rec, ...args) {
@@ -210,7 +212,7 @@ export function addDOM(system) {
 export class Evaluator {
     evaluate(system, str, rcvr) {
         let translator = new Translator();
-        let st = translator.translate(str, "Expression");
+        let st = translator.translate(system, str, "TopExpression");
         st = 'return (' + st + ')';
 
         return (new Function("system", "self", st))(system, rcvr || null);
@@ -219,10 +221,18 @@ export class Evaluator {
     compile(system, str) {
         let translator = new Translator();
         let sts = translator.translate(system, str, "Top");
-        return sts.map((st) => {
+        let defs = sts.map((st) => {
             st = 'return (' + st + ')';
-            let obj = (new Function(st))();
+            let obj = (new Function("system", st))(system);
             return obj;
+        });
+        defs.forEach((def) => {
+            if (def.type === "method") {
+                system.defineMethod(def);
+            }
+            if (def.type === "expander") {
+                system.defineExpander(def);
+            }
         });
     }
 }

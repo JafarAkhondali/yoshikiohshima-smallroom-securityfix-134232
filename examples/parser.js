@@ -40,6 +40,8 @@ Smallroom {
 
     Result = Expression period?
 
+    TopExpression = Expression
+
     Expression =
       | variable assign Expression  -- assignment
       | KeywordExpression
@@ -249,6 +251,13 @@ semantics.addOperation("toJS(system, expander)", {
         return `${head};${tail}`;
     },
 
+    TopExpression(exp) {
+        this.lexicalVars; // eslint-disable-line no-unused-expressions
+
+        const {system, expander} = this.args;
+        return exp.toJS(system, expander);
+    },
+
     Expression_assignment(ident, _, exp) {
         const {system, expander} = this.args;
 
@@ -396,6 +405,12 @@ semantics.addAttribute(
             Method(id, pattern, _o, body, _c) {
                 return withEnv(pattern.identifiers(), () => {
                     body.lexicalVars; // eslint-disable-line no-unused-expressions
+                });
+            },
+
+            TopExpression(exp) {
+                return withEnv([], () => {
+                    exp.lexicalVars; // eslint-disable-line no-unused-expressions
                 });
             },
 
