@@ -339,7 +339,8 @@ semantics.addOperation("toJS(system, expander)", {
                 return `this._get('${pseudoVarOrIdent.sourceString}')`;
             }
             const id = pseudoVarOrIdent.toJS(system, expander);
-            if (knownClasses.indexOf(id) >= 0) {
+
+            if (system[id]) {
                 return `{stClass: "${id} class"}`;
             }
 
@@ -468,8 +469,6 @@ const jsReservedWords = [
   'arguments', 'eval'
 ];
 
-const knownClasses = ["Dictionary", "Array", "Interval", "Number", "Block"];
-
 semantics.addOperation('selector', {
     Method(id, pattern, _o, _, _c) {
         return pattern.selector();
@@ -550,7 +549,14 @@ export class Translator {
             let s = semantics(match);
             return s.toJS(system, null);
         }
-        console.log(match);
+
+        let error = {};
+        error.reason = "parse error";
+        error.expected = "Expected: " + match.getExpectedText();
+        error.pos = match.getRightmostFailurePosition();
+        error.src = str;
+        error.around = str.slice(error.pos - 10, error.pos + 10);
+        console.log(error);
         return null;
     }
 }

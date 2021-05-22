@@ -169,10 +169,21 @@ export class System {
         classes.forEach((systemKey) => this[systemKey][name] = fn);
     }
 
-    defineExpander(obj) {
+    defineExpander(_obj) {
         //const {name, instVars} = obj;
         //this[name] = {_instVars: instVarNamess.split(',')};
     }
+}
+
+export function addDOM(system) {
+    system['Element'] = {
+        'addExpander:'(self, name) {
+            self.addExpander(system, name);
+        },
+        'appendChild:'(self, elem) {
+            self.appendChild(elem);
+        }
+    };
 }
 
 export class Evaluator {

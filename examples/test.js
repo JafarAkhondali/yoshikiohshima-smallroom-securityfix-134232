@@ -1,19 +1,41 @@
-import {Evaluator, System} from "./evaluator.js";
+import {Evaluator, System, addDOM} from "./evaluator.js";
 
 const library = `
-Morph instVarNames: 'a b c'.
+Morph instVarNames: 'angle'.
+
+Morph initialize [
+   self addEventListener: #onClick for: 'click'.
+   self style width: 50.
+   self style height: 40.
+   self style backgroundColor: #blue.
+   angle := 0.
+].
 
 Morph onClick: evt [
-   | d |
-   a := 10.
-   d := 10.
+   | a |
+   a := self style width.
+   self style width: a + 10.
+   angle := angle + 1.
+
+   self rotateTo: angle.
+].
+
+Morph openIn: parent [
+   | elem |
+   elem := Element new.
+   elem addExpander: Morph.
+
+   parent appendChild: elem.
 ]
 
 `;
 
+const action = `Morph openIn: (document querySelector: #playground)`;
+
 export function test() {
     let ev = new Evaluator();
     let system = new System();
+    addDOM(system);
 
     let defs = ev.compile(system, library);
 
