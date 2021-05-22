@@ -179,10 +179,31 @@ export function addDOM(system) {
     system['Element'] = {
         'addExpander:'(self, name) {
             self.addExpander(system, name);
+            return self;
         },
         'appendChild:'(self, elem) {
             self.appendChild(elem);
+            return self;
+        },
+
+        'style'(self) {
+            return self.style;
         }
+    };
+
+    system['Style'] = {
+        'width'(self) {
+            self.getPropertyValue("width");
+            return this;
+        },
+        'width:'(self, value) {
+            if (typeof value === "number") {
+                self.setPropertyValue("width", `${value}px`);
+                return this;
+            }
+            self.setPropertyValue("width", value);
+            return this;
+        },
     };
 }
 
