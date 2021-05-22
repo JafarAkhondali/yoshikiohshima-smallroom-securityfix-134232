@@ -32,7 +32,6 @@ export class System {
             },
             'size'(self) {return self.length;}
         };
-        
 
         this['Block'] = {
             'value'(self) {return self.fn.call(self.self);},
