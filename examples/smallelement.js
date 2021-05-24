@@ -7,7 +7,9 @@ export function addSmallRoomElement(Element, ElementView, System) {
                     write: (c) => c.definitions,
                     read: (definitions) => {
                         let s = new System();
-                        s.restore(definitions);
+                        s.addDOM();
+                        s.definitions = definitions;
+                        s.redefineAll();
                         return s;
                     }
                 }
