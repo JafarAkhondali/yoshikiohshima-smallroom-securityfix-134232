@@ -17,7 +17,6 @@ class SmallRoomModel {
         if (!editorRef) {return;}
         let editor = this.getElement(editorRef);
         let text = editor.value;
-        console.log(text);
         if (this.system) {
             this.system.compile(text);
         }
@@ -28,7 +27,6 @@ class SmallRoomModel {
         if (!consoleRef) {return;}
         let c = this.getElement(consoleRef);
         let text = c.value;
-        console.log(text);
         if (this.system) {
             this.system.evaluate(text);
         }
@@ -154,11 +152,10 @@ Morph initialize [
 ].
 
 Morph onClick: evt [
-   | a |
-   a := self style width.
-   self style width: a + 10.
+   | w |
+   w := self style width.
+   self style width: w + 10.
    angle := angle + 0.1.
-
    self rotateTo: angle.
 ].
 
