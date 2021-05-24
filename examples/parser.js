@@ -9,16 +9,17 @@
 
 let SmallroomGrammar = String.raw`
 Smallroom {
-    Top = ListOf<(ExpanderDef | Method), "."> spaces
+    Top = ListOf<(ExpanderDef | Method), "."> "."? spaces
 
     ExpanderDef =
-      identifier "instVarNames:" "'" identifier* "'"
+      identifier "instVars:" "'" identifier* "'"
 
     Method = ClassSpec Pattern newBlock MethodBlock endBlock
 
     MethodBlock = BlockContents
 
     ClassSpec =
+      | identifier "class" -- class
       | identifier
       | LiteralArray
 
@@ -183,7 +184,7 @@ function getMessageArgs(message, system, expander) {
 }
 
 semantics.addOperation("toJS(system, expander)", {
-    Top(list, _s) {
+    Top(list, _p, _s) {
         const {system, expander} = this.args;
         return list.asIteration().children.map((n) => n.toJS(system, expander));
     },
@@ -192,8 +193,9 @@ semantics.addOperation("toJS(system, expander)", {
         const {system, expander} = this.args;
         const name = ident.toJS(system, expander);
         const varNames = vars.toJS(system, expander);
-        system[name] = {_instVarNames: varNames};
-        return `{type: "expander", name: '${name}', instVars: '${varNames}'}`;
+        system[name] = {_instVars: varNames};
+        system[`${name} class`] = {_instVars: []};
+        return {type: 'expander', name, instVars: varNames};
     },
 
     Method(spec, pattern, _o, body, _c) {
@@ -212,10 +214,15 @@ semantics.addOperation("toJS(system, expander)", {
             ids = `['${id}']`;
             expander = id;
         }
-
         const fn = body.toJS(system, expander);
 
-        return `{type: "method", name: '${selector}', classes: ${ids}, fn: (self, ${paramList}) => {${fn}}}`;
+        return {type: "method", name: selector, classes: ids, fn: `(self, ${paramList}) => {${fn}}`};
+    },
+
+    ClassSpec_class(cls, _c) {
+        const {system, expander} = this.args;
+        const id = cls.toJS(system, expander);
+        return `${id} class`;
     },
 
     MethodBlock(blockContentsOpt) {
@@ -261,13 +268,13 @@ semantics.addOperation("toJS(system, expander)", {
     Expression_assignment(ident, _, exp) {
         const {system, expander} = this.args;
 
-        const expanderVars = system[expander] ? system[expander]._instVarNames : [];
+        const expanderVars = system[expander] ? system[expander]._instVars : [];
         let id = ident.sourceString;
         let jsId = ident.toJS(system, expander);
         let expJS = exp.toJS(system, expander);
 
         if (expanderVars.indexOf(id) >= 0) {
-            return `this._set('${id}', ${expJS})`;
+            return `self._set('${id}', ${expJS})`;
         }
 
         if (this.lexicalVars[id]) {
@@ -334,7 +341,8 @@ semantics.addOperation("toJS(system, expander)", {
         return this.sourceString;
     },
     LiteralSymbol(_, stringOrSelector) {
-        return `${stringOrSelector.sourceString}`;
+        const {system, expander} = this.args;
+        return `{stClass: 'Symbol', self, string: '${stringOrSelector.sourceString}', expander: '${expander}'}`;
     },
     LiteralString(str) {
         return `${str.sourceString}`;
@@ -342,15 +350,19 @@ semantics.addOperation("toJS(system, expander)", {
 
     variable(pseudoVarOrIdent) {
         const {system, expander} = this.args;
-        const expanderArgs = system[expander] ? system[expander]._instVarNames : [];
+        const expanderArgs = system[expander] ? system[expander]._instVars : [];
         if (pseudoVarOrIdent._node.ctorName === 'identifier') {
             if (expanderArgs.includes(pseudoVarOrIdent.sourceString)) {
-                return `this._get('${pseudoVarOrIdent.sourceString}')`;
+                return `self._get('${pseudoVarOrIdent.sourceString}')`;
             }
             const id = pseudoVarOrIdent.toJS(system, expander);
 
-            if (system[id]) {
+            if (system[id] && system[`${id} class`]) {
                 return `{stClass: "${id} class"}`;
+            }
+
+            if (system[id]) {
+                return `{stClass: "${id}"}`;
             }
 
             if (this.lexicalVars[id]) {

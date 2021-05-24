@@ -123,7 +123,8 @@ export class Style { // extends TimeObject
     getTransform() {
         let r = this.values.local;
         if (r['-cards-direct-manipulation']) {
-            return r['-cards-transform'];
+            let v = r['-cards-transform'];
+            if (v) {return v;}
         }
         return [1, 0, 0, 1, 0, 0];
     }

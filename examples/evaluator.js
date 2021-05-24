@@ -2,6 +2,8 @@ import {Translator} from "./parser.js";
 
 export class System {
     constructor() {
+        window.stSystem = this;
+        this.definitions = new Map([["expanders", new Map()], ["methods", new Map()]]);
         this['Array class'] = {
             'new:'(self, length) {return new Array(length);},
             'newFrom:'(self, ary) {
@@ -40,7 +42,12 @@ export class System {
         };
 
         this['Number'] = {
-            '+'(self, other) {return self + other;},
+            '+'(self, other) {
+                if (typeof other === "number") {
+                    return self + other;
+                }
+                return self + other; // needs to double dispatch
+            },
             '-'(self, other) {return self - other;},
             '*'(self, other) {return self * other;},
             '/'(self, other) {return self / other;},
@@ -115,14 +122,136 @@ export class System {
             }
         };
 
+        this['Symbol'] = {
+            'asString'(self) {
+                return self.string.slice();
+            },
+            'asHandler'(self) {
+                return self.expander + self.string;
+            }
+        };
+    }
+
+    addDOM() {
+        let that = this;
+        this['Element'] = {
+            'addExpander:'(self, cls) {
+                if (cls.stClass && cls.stClass.indexOf(' ') >= 0) {
+                    cls = cls.stClass.split(' ')[0];
+                }
+                if (cls.stClass) {
+                    cls = cls.stClass;
+                }
+                self.addSTExpander(that, cls);
+                return self;
+            },
+
+            'addEventListenerFor:with:'(self, event, handler) {
+                self.call("Expander", "addSTEventListener", event, handler);
+            },
+            'appendChild:'(self, elem) {
+                self.appendChild(elem);
+                return self;
+            },
+
+            'style'(self) {
+                return self.style;
+            },
+
+            'rotateTo:'(self, value) {
+                let c = Math.cos(value);
+                let s = Math.sin(value);
+                let t = self.getTransform();
+                t = [c, s, -s, c, t[4], t[5]];
+                self.setTransform(t);
+                return self;
+            }
+        };
+
+        this['Element class'] = {
+            'new'(_self) {
+                let elem = that.root.createElement("SmallRoomElement");
+                return elem;
+            }
+        };
+
+        this['Style'] = {
+            'width'(self) {
+                let val = self.self.getPropertyValue("width");
+                if (val && val.endsWith("px")) {
+                    return parseFloat(val);
+                }
+                return val;
+            },
+            'width:'(self, value) {
+                if (typeof value === "number") {
+                    value += "px";
+                }
+                self.self.setProperty("width", value);
+                return self;
+            },
+            'height'(self) {
+                let val = self.self.getPropertyValue("height");
+                if (val && val.endsWith("px")) {
+                    return parseFloat(val);
+                }
+                return val;
+            },
+            'height:'(self, value) {
+                if (typeof value === "number") {
+                    value += "px";
+                }
+                self.self.setProperty("height", value);
+                return self;
+            },
+            'backgroundColor'(self) {
+                return self.self.getPropertyValue("background-color");
+            },
+            'backgroundColor:'(self, value) {
+                self.self.setProperty("background-color", value);
+                return self;
+            },
+        };
+
+        this['document'] = {
+            'querySelector:'(self, sel) {
+                if (sel.stClass === "Symbol") {
+                    sel = that.stCall("asString", sel);
+                }
+                if (!sel.startsWith("#")) {
+                    sel = "#" + sel;
+                }
+                return that.root.querySelector(sel);
+            }
+        };
+    }
+
+    setRoot(root) {
+        this.root = root;
     }
 
     stCall(sel, rec, ...args) {
         let cls = this.stClassOf(rec);
-        if (!cls) {throw new Error("receiver is not a Smalltalk object");}
+        if (!cls) {
+            throw new Error("receiver is not a Smalltalk object");
+        }
         let mth = cls[sel];
-        if (!mth) {throw new Error(`message ${sel} not understood`);}
+        if (!mth) {
+            throw new Error(`message ${sel} not understood`);
+        }
         return mth(rec, ...args);
+    }
+
+    stInitCall(sel, rec, ...args) {
+        let cls = this.stClassOf(rec);
+        if (!cls) {
+            throw new Error("receiver is not a Smalltalk object");
+        }
+        let mth = cls[sel];
+        if (!mth) {
+            throw new Error(`message ${sel} not understood`);
+        }
+        return mth(rec.self, ...args);
     }
 
     stClassOf(a) {
@@ -167,45 +296,40 @@ export class System {
 
     defineMethod(obj) {
         const {classes, name, fn} = obj;
-        classes.forEach((systemKey) => this[systemKey][name] = fn);
+        let key = `${classes.toString()}.${name}`;
+        this.definitions.get("methods").set(key, obj);
+
+        let st = 'return (' + fn + ')';
+        let fnObj = (new Function("system", st))(this);
+
+        let classArray = JSON.parse(classes.replaceAll("'", '"'));
+        classArray.forEach((systemKey) => this[systemKey][name] = fnObj);
     }
 
-    defineExpander(_obj) {
-        //const {name, instVars} = obj;
-        //this[name] = {_instVars: instVarNamess.split(',')};
+    defineExpander(obj) {
+        this.definitions.get("expanders").set(obj.name, obj);
     }
-}
 
-export function addDOM(system) {
-    system['Element'] = {
-        'addExpander:'(self, name) {
-            self.addExpander(system, name);
-            return self;
-        },
-        'appendChild:'(self, elem) {
-            self.appendChild(elem);
-            return self;
-        },
-
-        'style'(self) {
-            return self.style;
+    redefineAll() {
+        for (let [name, obj] of this.definitions.get("expanders")) {
+            this[name] = {_instVars: obj.instVars};
+            this[`${name} class`] = {_instVars: []};
         }
-    };
 
-    system['Style'] = {
-        'width'(self) {
-            self.getPropertyValue("width");
-            return this;
-        },
-        'width:'(self, value) {
-            if (typeof value === "number") {
-                self.setPropertyValue("width", `${value}px`);
-                return this;
-            }
-            self.setPropertyValue("width", value);
-            return this;
-        },
-    };
+        for (let obj of this.definitions.get("methods").values()) {
+            this.defineMethod(obj);
+        }
+    }
+
+    evaluate(str, rcvr) {
+        let ev = new Evaluator();
+        return ev.evaluate(this, str, rcvr);
+    }
+
+    compile(str) {
+        let ev = new Evaluator();
+        return ev.compile(this, str);
+    }
 }
 
 export class Evaluator {
@@ -220,12 +344,7 @@ export class Evaluator {
     compile(system, str) {
         let translator = new Translator();
         let sts = translator.translate(system, str, "Top");
-        let defs = sts.map((st) => {
-            st = 'return (' + st + ')';
-            let obj = (new Function("system", st))(system);
-            return obj;
-        });
-        defs.forEach((def) => {
+        sts.forEach((def) => {
             if (def.type === "method") {
                 system.defineMethod(def);
             }

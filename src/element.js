@@ -1518,6 +1518,8 @@ export class ElementView extends V {
             evt.type === "pointerdown" ||
             evt.type === "pointermove" ||
             evt.type === "pointerup" ||
+            evt.type === "click" || evt.type === "wheel" ||
+            evt.type === "dblclick" ||
             evt.type === "pointercancel" ||
             evt.type === "pointerout" ||
             evt.type === "pointerleave" ||
@@ -1551,14 +1553,13 @@ export class ElementView extends V {
 
         if (evt.type === "mousedown" ||
             evt.type === "mousemove" || evt.type === "mouseup" ||
-            evt.type === "click" || evt.type === "wheel" ||
-            evt.type === "dblclick" ||
             evt.type === "touchstart" || evt.type === "touchmove" || evt.type === "touchend") {
             let theEvt = evt.touches && evt.touches[0] ? evt.touches[0] : evt;
             let clientX = theEvt.clientX;
             let clientY = theEvt.clientY;
             let offsetX = theEvt.offsetX;
             let offsetY = theEvt.offsetY;
+            let type = evt.type;
 
             if (evt.shiftKey) {
                 evt.stopPropagation();
@@ -1567,6 +1568,7 @@ export class ElementView extends V {
             let result = {
                 touches: evt.touches, target: target, clientX, clientY,
                 offsetX: offsetX, offsetY: offsetY,
+                type,
                 buttons: evt.buttons, shiftKey: evt.shiftKey,
                 stopPropagation: () => evt.stopPropagation(),
                 preventDefault: () => evt.preventDefault()

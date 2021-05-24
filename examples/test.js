@@ -1,14 +1,14 @@
-import {Evaluator, System, addDOM} from "./evaluator.js";
+import {Evaluator, System} from "./evaluator.js";
 
 /*
 const library = `
-Morph instVarNames: 'angle'.
+Morph instVars: 'angle'.
 
 Morph initialize [
-   self addEventListener: #onClick for: 'click'.
+   self addEventListenerFor: 'click' with: #onClick:.
    self style width: 50.
    self style height: 40.
-   self style backgroundColor: #blue.
+   self style backgroundColor: 'blue'.
    angle := 0.
 ].
 
@@ -21,7 +21,7 @@ Morph onClick: evt [
    self rotateTo: angle.
 ].
 
-Morph openIn: parent [
+Morph class openIn: parent [
    | elem |
    elem := Element new.
    elem addExpander: Morph.
@@ -31,7 +31,7 @@ Morph openIn: parent [
 
 `;
 
-const action = `Morph openIn: (document querySelector: #playground)`;
+const action = `Morph openIn: (document querySelector: #room)`;
 
 */
 
@@ -54,7 +54,9 @@ const library = `
     i := 1.
     self do: [:each | aBlock value: each value: i. i := i + 1].
     ^ self.
-]
+].
+
+Array class spiecies [^'foo']
 `;
 
 /*
@@ -90,9 +92,10 @@ export function test() {
     let system = new System();
 
     addLibrary(system);
-
     let tests = [
         ["3 + 4"],
+        ["#click"],
+        ["#click:"],
         ["'a', 'b'"],
         ["3 negated"],
         ["((2 - 1) to: 3)"],

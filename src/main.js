@@ -41,7 +41,7 @@ function single(code, sessionOptions, sessionName, init) {
         return loader(code, null, Model, Element, start, sessionOptions, sessionName);
     }
 
-    Croquet.App.autoSession("q").then((name) => {
+    return Croquet.App.autoSession("q").then((name) => {
         name = `${init}-${name}`;
         loader(code, null, Model, Element, start, sessionOptions, name);
     });
@@ -65,9 +65,9 @@ return function projectCode(parent, json, persistentData) {
     if (svgFileName) {
         svgSpriteLoader(svgFileName);
     }
-    return async function main() {
+    return function main() {
         initializeElementClasses();
         library.installAsBaseLibrary();
-        single(projectCode, sessionOptions, sessionName, init);
+        return single(projectCode, sessionOptions, sessionName, init);
     };
 }
