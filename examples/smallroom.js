@@ -126,6 +126,7 @@ function beSmallRoom(parent, _json, _persistent) {
 
     let text = parent.createElement("TextElement");
     text.domId = "editor";
+    text.setWidth(1000);// should be adaptable when the parent width changed.
     text.setDefault("sans-serif", 16);
     room.call("SmallRoomModel", "setEditor", text);
 
